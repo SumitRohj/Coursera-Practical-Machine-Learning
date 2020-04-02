@@ -1,0 +1,129 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "Sumit Rohj"
+date: "2020-03-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+Our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participant They were asked to perform barbell lifts correctly and incorrectly in 5 different ways to build a predictive model. Referring to the research project HAR published on http://groupware.les.inf.puc-rio.br/har, five ways are exactly categoried by five classes which are specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). In a word, we will use the data from accelerometers to predict the class with some predictive models. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+## Data pre-processing
+
+### Loading data
+We load data from *csv* first. Please note that the work directory may vary according to your environment. In our case, we have a folder called Practical Machine Learning containing all the codes of this course. All the *.rmd* and *.html* files of the final project can be found in the subfolder Final.
+
+```{r,cache=TRUE}
+library(lubridate)
+library(forecast)
+
+training <- read.csv("C:/Users/Sumit_Rohj/Downloads/pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("C:/Users/Sumit_Rohj/Downloads/pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+### Cleaning data
+As found in the data csv files, there are some *NA* variables which may distrub our prediction. Thus we remove the predictors which contains any *NA* variables.
+
+```{r,cache=TRUE}
+mvIdx <- colSums(is.na(training)) != 0
+training <- training[, !mvIdx]
+testing <- testing[, !mvIdx]
+```
+
+We also remove the first seven predictors that have few correlations with the predicted classes.
+
+```{r,cache=TRUE}
+trainData <- training[, -c(1:7)]
+testData <- testing[, -c(1:7)]
+```
+
+## Data partition
+We divide the training dataset into trainSet and validSet. Then we will use trainSet to train our predictive model and have a first examination on it with validSet.
+
+```{r,cache=TRUE}
+library(caret)
+set.seed(1026) 
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+trainSet <- trainData[inTrain, ]
+validSet <- trainData[-inTrain, ]
+```
+
+## Model Training
+In this section, we present three predictive models listed below:
+Classification Tree(rpart)
+Generalized Boosted Regression Models(gbm)
+Random Forest(rf)
+We will not only compare the accuracy achieved by these three models but also their fitting speed. We will observe that *gbm* reaches the best performance in the aspects of both accuracy and speed.
+
+### Classification Tree(rpart)
+We first train a classification tree with 5-fold cross validation.
+
+```{r,cache=TRUE}
+control <- trainControl(method = "cv", number = 5)
+rpartMod <- train(classe ~ ., data = trainSet, method = "rpart", preProcess=c("center", "scale"),
+                   trControl = control)
+print(rpartMod, digits = 4)
+
+library(rattle)
+fancyRpartPlot(rpartMod$finalModel)
+
+predict_rpart <- predict(rpartMod, validSet)
+(conf_rpart <- confusionMatrix(validSet$classe, predict_rpart))
+(predict(rpartMod, testData))
+
+```
+Notice the classification tree only utilizes four predictors out of 52. The accuracy is no more than 0.5. From the confusion matrix, the out of sample error rate is 0.5242. In conclusion, classification tree can't predict the manner classes very well.
+
+### Generalized Boosted Regression Models(gbm)
+Secondly, we use *gbm* also with 5-fold cross validation to train the data. It takes longer than *rpart* but still acceptable time, let's say, 10 minutes, to finish the training procedure.
+
+```{r,cache=TRUE}
+control <- trainControl(method = "cv", number = 5)
+gbmMod <- train(classe ~ ., data = trainSet, method = "gbm", preProcess=c("center", "scale"),
+                   trControl = control)
+print(gbmMod, digits = 4)
+
+# predict outcomes using validation set
+predict_gbm <- predict(gbmMod, validSet)
+# Show prediction result
+(conf_gbm <- confusionMatrix(validSet$classe, predict_gbm))
+
+(predict(gbmMod, testData))
+```
+From the confusion matrix we can note that the *gbm* model finally achieves 0.96 accuracy, which proves its strong ability to predict the manner class very well.
+
+### Random Forest(rf)
+Finally, we have tries to train a random forest model. However, with 52 predictors of over 15 thousand samples, it seems that random forest needs several hours to finish the training procedure. Thus, we only use the first 5 predictors to build our random forest. Luckily, it can also outperform the *rpart* model with over 0.91 accuracy rate.
+
+```{r,cache=TRUE}
+control <- trainControl(method = "cv", number = 5)
+trainSetP <- subset(trainSet, select=-c(classe))
+trainSetC <- trainSet$classe
+
+rfMod <- train(trainSetC ~ ., data=trainSetP[, c(1:5)], method = "rf", preProcess=c("center", "scale"),
+                   trControl = control, prox = TRUE)
+print(rfMod, digits = 4)
+
+predict_rf <- predict(rfMod, validSet)
+(conf_rf <- confusionMatrix(validSet$classe, predict_rf))
+(predict(rfMod, testData))
+
+```
+
+
+## Conclusion
+In this project, we utilize three popular predictive model to train our *HAR* data and compare their accuracy as well as computation speed. We also have trained a random forest model with all the predictors and achieved nearly 0.99 accuracy. Due to the too low compiling speed of this R markdown file, we didn't show them here.
+
+* Regarding the accuracy, random forest model achieves the best.
+* Regarding the speed, classification tree consumes the least time. However, it has poor accuracy performance with more than 20 predictors of training samples.
+* Regarding the above two aspects, generalized boosted regression Model achieves considerable accuracy performance with acceptable training time.
+
+In conclusion, since this dataset has not only large number of samples but also more than 20 predictors, *rpart* model doesn't work well compared with *gbm* and *rf*. In addition, random forest model needs very long time due to too many predictors which leads to deeper trees. Thus, *gbm* model makes a good balance between accuracy and speed although it's also difficult to interpret. 
